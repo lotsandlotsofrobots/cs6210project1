@@ -42,6 +42,7 @@ vCPUInfo *vcpu = NULL;
 int numDomains = 0;
 int numPCPUs = 0;
 int cpuMapSize = 0;
+int cpusPerBlock = 0;
 
 void CPUScheduler(virConnectPtr conn,int interval);
 
@@ -94,7 +95,7 @@ int SetupPCPUsArray(virConnectPtr conn)
 {
     printf("Setting up pCPU info:\n");
 
-    numPCPUs = GetNumPCPUs(conn);
+    numPCPUs = GetNumPCPUs(conn)/2;
 
     //cpuNumbersInLoadOrder = malloc(int * numPCPUs);
 
@@ -118,6 +119,7 @@ int SetupPCPUsArray(virConnectPtr conn)
     }
 
     cpuMapSize = ceil(numPCPUs/8.);
+    cpusPerBlock = MIN(numPCPUs,8);
 
     printf("  - NumPCPUs: %d\n", numPCPUs);
     printf("  - CPU map size is %d\n", cpuMapSize);
@@ -189,7 +191,11 @@ int PerformInitialVCPUtoPCPUMapping(virConnectPtr conn)
 {
     printf("Performing initial VCPU affinity mapping:\n");
 
-    // iterate over them, just cycling through CPUs right now
+    // iterate over them, doing a serpentine draft
+    // (if doubling up is necessary, person with
+    // heaviest also gets lightest)
+    int reverse = 0;
+
     for (int i = 0; i < numDomains; i++)
     {
         virDomainPtr domain = vcpu[i].domain;
@@ -199,20 +205,39 @@ int PerformInitialVCPUtoPCPUMapping(virConnectPtr conn)
         // but need to cycle over ALL cpus
         //   - might be more than 8, might need to cycle to beginning
 
-        int cpuMapBlock = (i / numPCPUs) % cpuMapSize;
+      //  int cpuMapBlock = (i / numPCPUs) % cpuMapSize;
+      /*  int cpuMapBlock = i/
         int cpuInsideBlock = (i % numPCPUs);
 
-        //vcpu[i].domain = pow(2,i)(i % numPCPUs));
+        int absoluteCPU = cpuMapBlock*cpuMapSize + cpuInsideBlock;
+        unsigned int power = (unsigned int) absoluteCPU/numPCPUs;
+        int reverse = pow(-1, (power%2));
+
+        if (1 == reverse)
+        {
+            cpuInsideBlock = abs(cpuInsideBlock - );
+        }
+
+        printf("%d / %u = Power: %d\n", absoluteCPU, numPCPUs, power);
+        printf("Reverse: %d\n", reverse);
+*/
+        int cpuNumber = i % numPCPUs;
+        int reverse = (i/numPCPUs) % 2;
+        cpuNumber = abs(numPCPUs-cpuNumber-1 - (numPCPUs-1)*reverse);
+
+        int blockBumber = cpuNumber / cpusPerBlock;
+        int bitInBlock = cpuNumber % cpusPerBlock;
+
         for(int j = 0; j < cpuMapSize; j++)
         {
             vcpu[i].cpuMap[j] = 0;
         }
 
-        vcpu[i].cpuMap[cpuMapBlock] = (1 << cpuInsideBlock);
+        vcpu[i].cpuMap[blockBumber] = (1 << bitInBlock);
 
         virDomainPinVcpu(domain, 0, vcpu[i].cpuMap, cpuMapSize);
 
-        printf("  - Assigned domain %d to pcpu %d\n", i, (cpuMapBlock * cpuMapSize) + cpuInsideBlock);
+        printf("  - Assigned domain %d to pcpu %d\n", i, cpuNumber);
     }
 
     // resume all at the same time for more accurate numbers
@@ -652,6 +677,24 @@ void CPUScheduler(virConnectPtr conn, int interval)
     for (int i = numDomains-1; i >= 0; i--)
     {
         int vpuID = vcpuNumbersInLoadOrder[i];
+        int cpuNumber = i % numPCPUs;
+        int reverse = (i/numPCPUs) % 2;
+        cpuNumber = abs(numPCPUs-cpuNumber-1 - (numPCPUs-1)*reverse);
+
+        int blockBumber = cpuNumber / cpusPerBlock;
+        int bitInBlock = cpuNumber % cpusPerBlock;
+
+        for(int j = 0; j < cpuMapSize; j++)
+        {
+            vcpu[i].cpuMap[j] = 0;
+        }
+
+        vcpu[i].cpuMap[blockBumber] = (1 << bitInBlock);
+        //printf("+++ Assigning vcpu %d (%s) to pCPU %d\n", vcpu[vpuID].domainNumber, vcpu[vpuID].domainName, blockBumber*cpuMapSize + bitInBlock);
+        printf("+++ Assigning vcpu %d (%s) to pCPU %d\n", vcpu[vpuID].domainNumber, vcpu[vpuID].domainName, cpuNumber);
+
+      /*
+        int vpuID = vcpuNumbersInLoadOrder[i];
         int cpuMapBlock = (i / numPCPUs) % cpuMapSize;
         int cpuInsideBlock = (i % numPCPUs);
 
@@ -664,7 +707,7 @@ void CPUScheduler(virConnectPtr conn, int interval)
         printf("+++ Assigning vcpu %d (%s) to pCPU %d\n", vcpu[vpuID].domainNumber, vcpu[vpuID].domainName, cpuMapBlock*cpuMapSize + cpuInsideBlock);
 
         vcpu[vpuID].cpuMap[cpuMapBlock] = (1 << cpuInsideBlock);
-
+*/
         virDomainPinVcpu(vcpu[vpuID].domain, 0, vcpu[vpuID].cpuMap, cpuMapSize);
     }
 
