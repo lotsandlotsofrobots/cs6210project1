@@ -194,33 +194,11 @@ int PerformInitialVCPUtoPCPUMapping(virConnectPtr conn)
     // iterate over them, doing a serpentine draft
     // (if doubling up is necessary, person with
     // heaviest also gets lightest)
-    int reverse = 0;
 
     for (int i = 0; i < numDomains; i++)
     {
         virDomainPtr domain = vcpu[i].domain;
-        //virDomainSuspend(domain);
 
-        // we need to generate a 00100000 style bit field
-        // but need to cycle over ALL cpus
-        //   - might be more than 8, might need to cycle to beginning
-
-      //  int cpuMapBlock = (i / numPCPUs) % cpuMapSize;
-      /*  int cpuMapBlock = i/
-        int cpuInsideBlock = (i % numPCPUs);
-
-        int absoluteCPU = cpuMapBlock*cpuMapSize + cpuInsideBlock;
-        unsigned int power = (unsigned int) absoluteCPU/numPCPUs;
-        int reverse = pow(-1, (power%2));
-
-        if (1 == reverse)
-        {
-            cpuInsideBlock = abs(cpuInsideBlock - );
-        }
-
-        printf("%d / %u = Power: %d\n", absoluteCPU, numPCPUs, power);
-        printf("Reverse: %d\n", reverse);
-*/
         int cpuNumber = i % numPCPUs;
         int reverse = (i/numPCPUs) % 2;
         cpuNumber = abs(numPCPUs-cpuNumber-1 - (numPCPUs-1)*reverse);
@@ -243,9 +221,6 @@ int PerformInitialVCPUtoPCPUMapping(virConnectPtr conn)
     // resume all at the same time for more accurate numbers
     for (int i = 0; i < numDomains; i++)
     {
-        //virDomainPtr domain = vcpu[i].domain;
-        //virDomainResume(domain);
-
         vcpu[i].startCPUTime = vcpu[i].domainInfo->cpuTime;
         vcpu[i].lastCPUTime = vcpu[i].startCPUTime;
         printf("    - Domain %d cpu time: %llu on %d\n", i, vcpu[i].domainInfo->cpuTime, vcpu[i].domainInfo->cpu);
@@ -308,11 +283,8 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-
-
 	// Get the total number of pCpus in the host
 	signal(SIGINT, signal_callback_handler);
-
 
 	while(!is_exit)
 	// Run the CpuScheduler function that checks the CPU Usage and sets the pin at an interval of "interval" seconds
@@ -326,64 +298,11 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-/*
-void CreatePCPULoadTree(pCPUInfo * head)
-{
-    pCPUInfo * node = NULL;
-
-    for (int i = 1; i < numPCPUs; i++)
-    {
-        node = head;
-
-        while(1)
-        {
-            if ( pcpu[i].relativeLoad < node->relativeLoad )
-            {
-                if (node->lowerLoad == NULL)
-                {
-                    node->lowerLoad = &pcpu[i];
-                    break;
-                }
-                else
-                {
-                    node = node->lowerLoad;
-                }
-            }
-            else if ( pcpu[i].relativeLoad >= node->relativeLoad )
-            {
-                if (node->higherLoad == NULL)
-                {
-                    node->higherLoad = &pcpu[i];
-                    break;
-                }
-                else
-                {
-                    node = node->higherLoad;
-                }
-            }
-        }
-    }
-}
-
-void TreeToArray(pCPUInfo * node, int * array, int index)
-{
-    if (node->lowerWeight != NULL)
-
-}
-*/
-
-
 void InsertPCPUIntoLoadList(pCPUInfo ** head, pCPUInfo * newNode)
 {
-  /*
-    long long difference = newNode->lastCPUTime - averageCPUTime;
-    printf("  -- Difference between CPU %d and average: %lld\n", i, difference);
-    newNode->relativeLoad = difference;
-*/
     if (*head == NULL)
     {
         *head = newNode;
-        printf("Inserting %d at head\n", newNode->cpuNumber);
     }
     else
     {
@@ -410,7 +329,6 @@ void InsertPCPUIntoLoadList(pCPUInfo ** head, pCPUInfo * newNode)
         //  - we are in between two nodes (insert in between them)
         if (node == *head)
         {
-            printf("Replacing head, used to be %d(%lld), now %d(%lld)\n", node->cpuNumber, node->relativeLoad, newNode->cpuNumber, newNode->relativeLoad );
             node->lowerLoad = newNode;
             newNode->higherLoad = node;
             *head = newNode;
@@ -419,7 +337,6 @@ void InsertPCPUIntoLoadList(pCPUInfo ** head, pCPUInfo * newNode)
         // but it has no neighbor (we're becoming tail)
         else if (NULL == node->higherLoad)
         {
-            printf("Node->higherLoad is null, inserting %d(%lld) here AFTER %d(%lld)\n", newNode->cpuNumber, newNode->relativeLoad, node->cpuNumber, node->relativeLoad);
             node->higherLoad = newNode;
             newNode->lowerLoad = node;
         }
@@ -442,7 +359,6 @@ void InsertVCPUIntoLoadList(vCPUInfo ** head, vCPUInfo * newNode)
     if (*head == NULL)
     {
         *head = newNode;
-        printf("Inserting %d at head\n", newNode->domainNumber);
     }
     else
     {
@@ -469,21 +385,26 @@ void InsertVCPUIntoLoadList(vCPUInfo ** head, vCPUInfo * newNode)
         //  - we are in between two nodes (insert in between them)
         if (node == NULL)
         {
-            printf("Something went horribly wrong.\n");
+            printf(" !! node was NULL!\n");
+            is_exit = 1;
+            return;
         }
 
         if (node == *head)
         {
             if(newNode == NULL)
             {
-                printf("Something else went horribly wrong.\n");
+                printf("  !! newNode was NULL!\n");
+                is_exit = 1;
+                return;
             }
             if(node == NULL)
             {
-                printf("???\n");
+                printf("!! node was NULL\n");
+                is_exit = 1;
+                return;
             }
 
-            printf("Replacing head, used to be %d(%lld), now %d(%lld)\n", node->domainNumber, node->relativeLoad, newNode->domainNumber, newNode->relativeLoad );
             node->lowerLoad = newNode;
             newNode->higherLoad = node;
             *head = newNode;
@@ -494,14 +415,13 @@ void InsertVCPUIntoLoadList(vCPUInfo ** head, vCPUInfo * newNode)
         {
           if(newNode == NULL)
           {
-              printf("Something very else went horribly wrong.\n");
+              printf("!! newNode was NULL!\n");
           }
           else if (node == NULL)
           {
-            printf("ummm.\n");
+            printf("!! node was NULL!\n");
           }
 
-            printf("Node->higherLoad is null, inserting %d(%lld) here AFTER %d(%lld)\n", newNode->domainNumber, newNode->relativeLoad, node->domainNumber, node->relativeLoad);
             node->higherLoad = newNode;
             newNode->lowerLoad = node;
         }
@@ -509,11 +429,13 @@ void InsertVCPUIntoLoadList(vCPUInfo ** head, vCPUInfo * newNode)
         {
           if(newNode == NULL)
           {
-              printf("wtf.\n");
+              printf("  !! newNode was NULL!");
+
           }
           else if (node == NULL)
           {
-              printf("how did this happen.\n");
+              printf(" !! node was NULL!.\n");
+              return;
           }
 
             vCPUInfo * prev = node->lowerLoad;
@@ -572,7 +494,6 @@ void CPUScheduler(virConnectPtr conn, int interval)
         }
 
         int activeCPU = vcpu[i].domainInfo->cpu;
-        //unsigned long long totalElapsedForVCPU = (vcpu[i].domainInfo->cpuTime - vcpu[i].startCPUTime);
 
         unsigned long long elapsed = (vcpu[i].domainInfo->cpuTime - vcpu[i].lastCPUTime);
         vcpu[i].lastElapsed = elapsed;
@@ -582,13 +503,6 @@ void CPUScheduler(virConnectPtr conn, int interval)
 
         printf("  -- Domain %d elapsed cpu time: %llu (on %d)\n", i, elapsed, activeCPU);
         pcpu[activeCPU].lastCPUTime += elapsed;
-
-        // shift everyone by one
-        //int cpuMapBlock = ((activeCPU+1) / numPCPUs) % cpuMapSize;
-        //int cpuInsideBlock = ((activeCPU+1) % numPCPUs);
-
-        //printf("    -> Moving %d from %d to %d\n", i, activeCPU, cpuMapBlock*cpuMapSize + cpuInsideBlock);
-        //vcpu[i].cpuMap[cpuMapBlock] = (1 << cpuInsideBlock);
 
         // divide later, save time now
         averageElapsed += elapsed;
@@ -633,17 +547,17 @@ void CPUScheduler(virConnectPtr conn, int interval)
     }
 
     // print the tree:
-    printf("    -> Printing the load tree\n");
-    pCPUInfo * cpunode = pCPUHead;
+    //printf("    -> Printing the load tree\n");
+    //pCPUInfo * cpunode = pCPUHead;
 
     //for (int i = 0; i < numPCPUs; i++)
-    int cpuNumbersInLoadOrder[numPCPUs];
+    /*int cpuNumbersInLoadOrder[numPCPUs];
     for(int i = 0; i < numPCPUs; i++)
     {
         printf("      -> CPU %d, relativeLoad: %lld\n", cpunode->cpuNumber, cpunode->relativeLoad);
         cpuNumbersInLoadOrder[i] = cpunode->cpuNumber;
         cpunode = cpunode->higherLoad;
-    }
+    }*/
 
     if (needToRebalance == 0)
     {
