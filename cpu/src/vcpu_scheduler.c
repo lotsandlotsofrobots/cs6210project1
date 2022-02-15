@@ -97,8 +97,6 @@ int SetupPCPUsArray(virConnectPtr conn)
 
     numPCPUs = GetNumPCPUs(conn)/2;
 
-    //cpuNumbersInLoadOrder = malloc(int * numPCPUs);
-
     if (-1 == numPCPUs)
     {
         return -1;
@@ -456,6 +454,13 @@ void InsertVCPUIntoLoadList(vCPUInfo ** head, vCPUInfo * newNode)
 void CPUScheduler(virConnectPtr conn, int interval)
 {
     static int firstTime = 1;
+    static int madeChangesLastTime = 0;
+    if (madeChangesLastTime == 1)
+    {
+        // give things a chance to settle
+        madeChangesLastTime = 0;
+        return;
+    }
     if (1 == firstTime)
     {
         printf("-- PERFORMING FIRST TIME SETUP --\n\n");
@@ -474,9 +479,6 @@ void CPUScheduler(virConnectPtr conn, int interval)
 
     unsigned long long averageElapsed = 0;
     unsigned long long averageCPUTime = 0;
-
-    //long long cpuRelativeLoad[numPCPUs];
-    //long long vcpuRelativeWeight[numDomains];
 
     for (int i = 0; i < numPCPUs; i++)
     {
@@ -519,12 +521,6 @@ void CPUScheduler(virConnectPtr conn, int interval)
     averageElapsed /= numDomains;
     averageCPUTime /= numPCPUs;
 
-    /*  int highestToLowestLoadCPUs[numPCPUs];
-    for (int i = 0; i < numPCPUs; i++)
-    {
-        highestToLowestLoadCPUs[i] = 0;
-    } */
-
     // find our load relative to others
     int needToRebalance = 0;
     long long rebalanceThreshold = averageCPUTime * 0.05;
@@ -543,28 +539,15 @@ void CPUScheduler(virConnectPtr conn, int interval)
         {
             printf("  -- Rebalance triggered.\n");
             needToRebalance = 1;
+            madeChangesLastTime = 1;
         }
     }
-
-    // print the tree:
-    //printf("    -> Printing the load tree\n");
-    //pCPUInfo * cpunode = pCPUHead;
-
-    //for (int i = 0; i < numPCPUs; i++)
-    /*int cpuNumbersInLoadOrder[numPCPUs];
-    for(int i = 0; i < numPCPUs; i++)
-    {
-        printf("      -> CPU %d, relativeLoad: %lld\n", cpunode->cpuNumber, cpunode->relativeLoad);
-        cpuNumbersInLoadOrder[i] = cpunode->cpuNumber;
-        cpunode = cpunode->higherLoad;
-    }*/
 
     if (needToRebalance == 0)
     {
         printf("  -- No need to rebalance.\n");
         return;
     }
-
 
     // do basically the same thing as we did before
     vCPUInfo * vCPUHead = NULL;
@@ -595,17 +578,20 @@ void CPUScheduler(virConnectPtr conn, int interval)
         int reverse = (i/numPCPUs) % 2;
         cpuNumber = abs(numPCPUs-cpuNumber-1 - (numPCPUs-1)*reverse);
 
+        //int blockBumber = cpuNumber / cpusPerBlock;
         int blockBumber = cpuNumber / cpusPerBlock;
         int bitInBlock = cpuNumber % cpusPerBlock;
 
         for(int j = 0; j < cpuMapSize; j++)
         {
-            vcpu[i].cpuMap[j] = 0;
+            vcpu[vpuID].cpuMap[j] = 0;
         }
 
-        vcpu[i].cpuMap[blockBumber] = (1 << bitInBlock);
+
+        vcpu[vpuID].cpuMap[blockBumber] = (1 << (bitInBlock));
         //printf("+++ Assigning vcpu %d (%s) to pCPU %d\n", vcpu[vpuID].domainNumber, vcpu[vpuID].domainName, blockBumber*cpuMapSize + bitInBlock);
         printf("+++ Assigning vcpu %d (%s) to pCPU %d\n", vcpu[vpuID].domainNumber, vcpu[vpuID].domainName, cpuNumber);
+        printf("   +++ vpuID: %d / cpuID: %d / blockBumber: %d / bitInBlock: %d / vpu[i].cpuMap[j]: %d\n", vpuID, cpuNumber, blockBumber, bitInBlock, vcpu[i].cpuMap[blockBumber]);
 
       /*
         int vpuID = vcpuNumbersInLoadOrder[i];
@@ -622,7 +608,14 @@ void CPUScheduler(virConnectPtr conn, int interval)
 
         vcpu[vpuID].cpuMap[cpuMapBlock] = (1 << cpuInsideBlock);
 */
-        virDomainPinVcpu(vcpu[vpuID].domain, 0, vcpu[vpuID].cpuMap, cpuMapSize);
+        //virDomainPinVcpu(vcpu[vpuID].domain, 0, vcpu[vpuID].cpuMap, cpuMapSize);
+        //virDomainPinVcpu(vcpu[vpuID].domain, 0, vcpu[vpuID].cpuMap, cpuMapSize);
+
+        //virDomainPinVcpu(domain, 0, vcpu[i].cpuMap, cpuMapSize);
+
+
+        int rva = virDomainPinVcpu(vcpu[vpuID].domain, 0, vcpu[vpuID].cpuMap, cpuMapSize);
+        printf("      +++ POST ASSIGNMENT RVA: %d\n", rva);
     }
 
 
